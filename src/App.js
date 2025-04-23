@@ -60,69 +60,62 @@ function App() {
     setInputBar(event.target.value);
   };
 
-  const returnRequestOptions = (imageURL) => {
-    const PAT = "ffff3cf8d25943c5b8f9411102c92bf9"; // Still need to hide PAT
-    const USER_ID = "wzfbzddr7xj5";
-    const APP_ID = "Portfolio-1";
+  const onButtonSubmit = async () => {
+    if (!inputBar || !inputBar.match(/\.(jpg|jpeg|png)$/i)) {
+      alert("Please enter a valid image URL (jpg or png)");
+      return;
+    }
 
-    const raw = JSON.stringify({
-      user_app_id: {
-        user_id: USER_ID,
-        app_id: APP_ID,
-      },
-      inputs: [
-        {
-          data: {
-            image: {
-              url: imageURL,
-            },
-          },
+    try {
+      // Call your own backend instead of Clarifai directly
+      const response = await fetch("http://localhost:3001/imageurl", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      ],
-    });
+        body: JSON.stringify({ input: inputBar }),
+      });
 
-    return {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        Authorization: `Key ${PAT}`,
-        "Content-Type": "application/json", // Added to fix "Method Not Allowed"
-      },
-      body: raw,
-    };
-  };
+      if (!response.ok) {
+        throw new Error(
+          `Backend API error: ${response.status} ${response.statusText}`
+        );
+      }
 
-  const onButtonSubmit = () => {
-    fetch(
-      "https://api.clarifai.com/v2/models/face-detection/outputs",
-      returnRequestOptions(inputBar)
-    )
-      .then((response) => {
-        console.log("API Response:", response);
-        if (response) {
-          fetch("http://localhost:3000/image", {
-            method: "post",
-            mode: "cors",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              id: user.id,
-            }),
-          })
-            .then((response) => {
-              console.log("Response Status:", response.status);
-              console.log("Response Headers:", response.headers);
-              response.json();
-            })
-            .then((count) => {
-              setUser((prevUser) => ({ ...prevUser, entries: count }));
-            })
-            .catch((err) => console.log("Error updating entries:", err));
+      const data = await response.json();
+      console.log("Backend API Response:", data);
 
-          const faceBox = calculateFaceLocation(response);
-          displayFaceBox(faceBox);
-        }
-      })
-      .catch((err) => console.log("Error:", err));
+      if (data.status.code !== 10000 || !data.outputs?.[0]?.data?.regions) {
+        throw new Error("No faces detected or invalid API response");
+      }
+
+      // Process face detection
+      const faceBox = calculateFaceLocation(data);
+      displayFaceBox(faceBox);
+
+      // Update user entries in backend
+      const updateResponse = await fetch("http://localhost:3001/image", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ id: user.id }),
+      });
+
+      if (!updateResponse.ok) {
+        throw new Error(
+          `Backend error: ${updateResponse.status} ${updateResponse.statusText}`
+        );
+      }
+
+      const count = await updateResponse.json();
+      setUser((prevUser) => ({ ...prevUser, entries: count.entries || count }));
+    } catch (err) {
+      console.error("Error:", err);
+      alert(
+        "Failed to process image. Please check the image URL and try again."
+      );
+    }
   };
 
   const onRouteChange = (route) => {
